@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>WebTalk</title>
+  <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+  <style>
+    body { margin:0; font-family:Arial; display:flex; height:100vh; background:#0f172a; color:#fff }
+    .left { width:300px; background:#1e293b; padding:12px; overflow:auto }
+    .right{ flex:1; display:flex; flex-direction:column }
+    .panel { background:#0f172a; border-radius:10px; padding:10px; margin-bottom:10px }
+    h3 { margin:6px 0 10px }
+    button { background:#03a9f4; border:none; color:#fff; padding:6px 10px; border-radius:6px; cursor:pointer; margin-left:6px }
+    button:hover { background:#0288d1 }
+    input { padding:8px; border:none; border-radius:6px; width:100%; margin-top:6px; color:#000 }
+    #chat-box { flex:1; margin:10px; background:#1e293b; border-radius:10px; padding:10px; overflow-y:auto }
+    #composer { display:flex; padding:10px; background:#0f172a }
+    #composer input { flex:1; margin-right:10px }
+    .row { display:flex; align-items:center; justify-content:space-between; margin:4px 0 }
+    .badge { background:#334155; border-radius:8px; padding:2px 6px; font-size:12px; margin-left:6px }
+    .header { background:#1e293b; padding:10px; display:flex; align-items:center; justify-content:space-between }
+    a { color:#03a9f4; text-decoration:none }
+  </style>
+</head>
+<body>
+  <div class="left">
+    <div class="panel">
+      <div class="row">
+        <h3>Hi, {{ username }}</h3>
+        <a href="/logout">Logout</a>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Users</h3>
+      <div id="user-list">Loading...</div>
+    </div>
+
+    <div class="panel">
+      <h3>Incoming Requests</h3>
+      <div id="incoming">Loading...</div>
+    </div>
+
+    <div class="panel">
+      <h3>Groups</h3>
+      <div id="group-list">Loading...</div>
+      <input id="new-group" placeholder="New group name" />
+      <button onclick="createGroup()">Create</button>
+    </div>
+
+    <div class="panel">
+      <h3>Join Requests (Admin)</h3>
+      <div id="admin-reqs">Loading...</div>
+    </div>
+  </div>
+
+  <div class="right">
+    <div class="header">
+      <div id="header-title">Select a chat or group</div>
+      <div id="status" class="badge">connecting...</div>
+    </div>
+
+    <div id="chat-box"></div>
+
+    <div id="composer">
+      <input id="msg" placeholder="Type your message..." />
+      <button onclick="send()">Send</button>
+    </div>
+  </div>
+
+<script>
+const API = "http://127.0.0.1:7000";
+const socket = io();
+const me = "{{ username }}";
+
+let current = { type: null, id: null, name: null }; // {type: 'pm'|'group', id: username|group_id, name: display}
+
+const chatBox = document.getElementById("chat-box");
+const msgInput = document.getElementById("msg");
+const headerTitle = document.getElementById("header-title");
+const statusBadge = document.getElementById("status");
+
+// socket wiring
+socket.on("connect", () => {
+  statusBadge.textContent = "online";
+  socket.emit("register", me);
+});
+socket.on("disconnect", () => statusBadge.textContent = "offline");
+socket.on("gateway", m => log(`[gateway] ${m}`));
+socket.on("message",  m => log(m));
+
+function log(line) {
+  const div = document.createElement("div");
+  div.textContent = line;
+  chatBox.appendChild(div);
+  chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+// --- API helpers ---
+async function loadUsers() {
+  const r = await fetch(`${API}/users?me=${me}`);
+  const data = await r.json();
+  const users = (data.users || data).filter(u => typeof u === 'string' ? u !== me : u.username !== me);
+  document.getElementById("user-list").innerHTML =
+    users.map(u => {
+      const name = typeof u === 'string' ? u : u.username;
+      return `<div class="row">
+          <div>${name}</div>
+          <div>
+            <button onclick="requestChat('${name}')">Request</button>
+            <button onclick="openPM('${name}')">Open</button>
+          </div>
+        </div>`;
+    }).join('') || "No other users.";
+}
+
+async function loadIncoming() {
+  const r = await fetch(`${API}/chat/requests/incoming?me=${me}`);
+  const data = await r.json();
+  const list = data.requests || [];
+  document.getElementById("incoming").innerHTML =
+    list.map(r => `<div class="row">
+        <div>${r.from_user} → ${r.to_user} <span class="badge">${r.status}</span></div>
+        <div><button onclick="acceptChat(${r.id})">Accept</button></div>
+      </div>`).join('') || "No pending requests.";
+}
+
+async function requestChat(to) {
+  await fetch(`${API}/chat/request`, {
+    method: "POST", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({from_user: me, to_user: to})
+  });
+  alert("Request sent to " + to);
+  loadIncoming();
+}
+async function acceptChat(id) {
+  await fetch(`${API}/chat/accept`, {
+    method: "POST", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({request_id: id})
+  });
+  alert("Accepted");
+  loadIncoming();
+}
+
+async function loadGroups() {
+  const r = await fetch(`${API}/groups`);
+  const data = await r.json();
+  const groups = data.groups || [];
+  document.getElementById("group-list").innerHTML =
+    groups.map(g => `<div class="row">
+        <div>${g.name}</div>
+        <div>
+          <button onclick="openGroup(${g.id}, '${g.name}')">Open</button>
+          <button onclick="joinGroup(${g.id})">Join</button>
+        </div>
+      </div>`).join('') || "No groups yet.";
+}
+async function createGroup() {
+  const name = document.getElementById("new-group").value.trim();
+  if (!name) return;
+  await fetch(`${API}/group/create`, {
+    method: "POST", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({name, created_by: me})
+  });
+  document.getElementById("new-group").value = "";
+  loadGroups();
+}
+async function joinGroup(id) {
+  await fetch(`${API}/group/join-request`, {
+    method: "POST", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({group_id: id, user: me})
+  });
+  alert("Join request sent");
+}
+async function loadAdminReqs() {
+  const r = await fetch(`${API}/group/requests?admin=${me}`);
+  const data = await r.json();
+  const list = data.requests || [];
+  document.getElementById("admin-reqs").innerHTML =
+    list.map(x => `<div class="row">
+        <div>${x.user} wants group ${x.group_id}</div>
+        <div><button onclick="approveReq(${x.id})">Approve</button></div>
+      </div>`).join('') || "None.";
+}
+async function approveReq(id) {
+  await fetch(`${API}/group/accept`, {
+    method: "POST", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({request_id: id})
+  });
+  loadAdminReqs();
+}
+
+// chat selection
+async function openPM(user) {
+  // verify allowed
+  const r = await fetch(`${API}/chat/allowed?u1=${me}&u2=${user}`);
+  const data = await r.json();
+  if (!data.allowed) {
+    alert("Not allowed yet. Send or accept a request first.");
+    return;
+  }
+  current = { type: 'pm', id: user, name: user };
+  headerTitle.textContent = "Chat with " + user;
+  chatBox.innerHTML = "";
+}
+function openGroup(id, name) {
+  current = { type:'group', id, name };
+  headerTitle.textContent = "Group: " + name;
+  chatBox.innerHTML = "";
+}
+
+// send
+function send() {
+  const text = msgInput.value.trim();
+  if (!text || !current.type) { return; }
+  if (current.type === 'pm') {
+    socket.emit("send_pm", { to: current.id, text });
+  } else {
+    socket.emit("send_group", { group_id: current.id, group_name: current.name, text });
+  }
+  log(`You: ${text}`);
+  msgInput.value = "";
+}
+
+// initial loads
+loadUsers();
+loadIncoming();
+loadGroups();
+loadAdminReqs();
+// periodic refresh
+setInterval(loadIncoming, 5000);
+setInterval(loadAdminReqs, 7000);
+</script>
+</body>
+</html>

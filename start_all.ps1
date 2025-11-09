@@ -1,0 +1,6 @@
+Start-Process powershell -ArgumentList "cd backend\api; python app.py"
+Start-Process powershell -ArgumentList "cd backend; python backup_server.py"
+Start-Process powershell -ArgumentList "cd backend; python chat_server_primary.py"
+Start-Process powershell -ArgumentList "cd backend; python chat_server_replica.py"
+Start-Process powershell -ArgumentList "cd backend; python load_balancer.py"
+Start-Process powershell -ArgumentList "cd frontend; python app.py"

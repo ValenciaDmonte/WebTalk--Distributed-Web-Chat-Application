@@ -1,0 +1,49 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>WebTalk — Sign in</title>
+  <script>
+    async function go() {
+      const username = document.getElementById('u').value.trim();
+      const password = document.getElementById('p').value;
+      if(!username||!password) return alert("Enter both fields");
+      const res = await fetch("http://127.0.0.1:7000/login", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({username, password})
+      });
+      const j = await res.json();
+      if(j.ok){
+        localStorage.setItem("webtalk_user", username);
+        location.href = "/chat";
+      } else {
+        alert(j.error || "Login failed");
+      }
+    }
+    async function signup() {
+      const username = document.getElementById('u').value.trim();
+      const password = document.getElementById('p').value;
+      if(!username||!password) return alert("Enter both fields");
+      const res = await fetch("http://127.0.0.1:7000/signup", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({username, password})
+      });
+      const j = await res.json();
+      if(j.ok){ alert("Signup OK. Now login."); }
+      else alert(j.error || "Signup failed");
+    }
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gradient-to-br from-slate-900 to-indigo-900 h-screen flex items-center justify-center">
+  <div class="bg-white/10 backdrop-blur rounded-2xl p-8 w-96 shadow-xl">
+    <h1 class="text-white text-2xl font-semibold mb-6">WebTalk</h1>
+    <input id="u" class="w-full mb-3 px-3 py-2 rounded bg-white/20 text-white placeholder-gray-300" placeholder="Username"/>
+    <input id="p" type="password" class="w-full mb-6 px-3 py-2 rounded bg-white/20 text-white placeholder-gray-300" placeholder="Password"/>
+    <div class="flex gap-3">
+      <button onclick="go()" class="flex-1 bg-indigo-500 text-white py-2 rounded hover:bg-indigo-600">Login</button>
+      <button onclick="signup()" class="flex-1 bg-slate-200 py-2 rounded hover:bg-slate-300">Sign up</button>
+    </div>
+  </div>
+</body>
+</html>
